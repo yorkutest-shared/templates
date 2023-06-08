@@ -3,9 +3,6 @@ name: 'Terraform Plan/Apply'
 on:
   workflow_call:
     inputs:
-#        storage-key:
-#          required: true
-#          type: string
         storageAccountInfo:
           required: true
           type: string
@@ -23,21 +20,92 @@ on:
           type: string
         runsOn:
           type: string
-          default: self-hosted
-#    secrets:
-#      token:
-#        required: true
+          default: ubuntu-latest
 
 jobs:
+
+  unit-tests:
+    name: 'Terraform Unit Tests'
+    runs-on: ${{ inputs.runsOn }}
+    
+    steps:
+
+    # Checkout the repository to the GitHub Actions runner
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    # Install the latest version of Terraform CLI and configure the Terraform CLI configuration file with a Terraform Cloud user API token
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+
+    # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
+    - name: Terraform Init
+      run: terraform init -backend=false
+
+    # Validate terraform files
+    - name: Terraform Validate
+      run: terraform validate
+
+
+    # Start liniting 
+    - uses: actions/cache@v3
+      name: Cache plugin dir
+      with:
+        path: ~/.tflint.d/plugins
+        key: tflint-${{ hashFiles('.tflint.hcl') }}
+
+    - uses: terraform-linters/setup-tflint@v3
+      name: Setup TFLint
+      with:
+        tflint_version: latest
+
+    - name: tflint setup azure plugin
+      run: |
+        echo 'plugin "terraform" {' > .tflint.hcl
+        echo '  enabled = true' >> .tflint.hcl
+        echo '  preset  = "recommended"' >> .tflint.hcl
+        echo '}' >> .tflint.hcl
+        echo ' ' >> .tflint.hcl
+        echo 'plugin "azurerm" {' >> .tflint.hcl
+        echo '    enabled = true' >> .tflint.hcl
+        echo '    version = "0.23.0"' >> .tflint.hcl
+        echo '    source  = "github.com/terraform-linters/tflint-ruleset-azurerm"' >> .tflint.hcl
+        echo '}' >> .tflint.hcl
+
+
+    # Checks that all Terraform configuration files adhere to a canonical format
+    - name: Echo file
+      run: cat .tflint.hcl
+
+    - name: Init TFLint
+      run: tflint --init 
+      env:
+        # https://github.com/terraform-linters/tflint/blob/master/docs/user-guide/plugins.md#avoiding-rate-limiting
+        GITHUB_TOKEN: ${{ github.token }}
+
+    - name: Show version
+      run: tflint --version
+
+    - name: Run TFLint
+      run: tflint -f compact --module --recursive
+
+      # Perform a security scan of the terraform code using checkov
+    #- name: Run Checkov action
+    #  id: checkov
+    #  uses: bridgecrewio/checkov-action@master
+    #  with: 
+    #    framework: terraform
+
+
   terraform-plan:
     name: 'Terraform Plan'
     runs-on: ${{ inputs.runsOn }}
-#    environment:
-#      name: ${{ inputs.targetEnv }}
+    needs: [unit-tests]
+    environment:
+      name: ${{ inputs.targetEnv }}
     env:
       ARM_SKIP_PROVIDER_REGISTRATION: true
       ARM_CLIENT_ID: "${{ secrets.AZURE_CLIENT_ID }}"
-      ARM_CLIENT_SECRET: "${{ secrets.AZURE_CLIENT_SECRET }}"
       ARM_SUBSCRIPTION_ID: "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
       ARM_TENANT_ID: "${{ secrets.AZURE_TENANT_ID }}"
     outputs:
@@ -110,24 +178,8 @@ jobs:
         SUMMARY: ${{ steps.tf-plan-string.outputs.summary }}
       run: |
         echo "$SUMMARY" >> $GITHUB_STEP_SUMMARY
-      
-#    # If this is a PR post the changes
-#    - name: Push Terraform Output to PR
-#      if: github.ref != 'refs/heads/main'
-#      uses: actions/github-script@v6
-#      env:
-#        SUMMARY: "${{ steps.tf-plan-string.outputs.summary }}"
-#      with:
-#          github-token: ${{ secrets.token }}
-#          script: |
-#            const body = `${process.env.SUMMARY}`;
-#            github.rest.issues.createComment({
-#                issue_number: context.issue.number,
-#                owner: context.repo.owner,
-#                repo: context.repo.repo,
-#                body: body
-#            })
-                
+
+        
   terraform-apply:
     name: 'Terraform Apply'
     if: inputs.deploymentType == 'Create' && (github.ref == 'refs/heads/main' || startsWith( github.ref, 'refs/tags/release/' )) && needs.terraform-plan.outputs.tfplanExitCode == 2
@@ -138,7 +190,6 @@ jobs:
     env:
       ARM_SKIP_PROVIDER_REGISTRATION: true
       ARM_CLIENT_ID: "${{ secrets.AZURE_CLIENT_ID }}"
-      ARM_CLIENT_SECRET: "${{ secrets.AZURE_CLIENT_SECRET }}"
       ARM_SUBSCRIPTION_ID: "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
       ARM_TENANT_ID: "${{ secrets.AZURE_TENANT_ID }}"
 
@@ -150,7 +201,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v3
 
-    # Install the latest version of Terraform CLI and configure the Terraform CLI configuration file with a Terraform Cloud user API token
+    ## Install the latest version of Terraform CLI and configure the Terraform CLI configuration file with a Terraform Cloud user API token
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v2
 

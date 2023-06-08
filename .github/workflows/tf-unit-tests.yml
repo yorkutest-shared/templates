@@ -6,9 +6,7 @@ on:
       runsOn:
         type: string
         default: self-hosted
-#    secrets:
-#      token:
-#        required: true
+
 jobs:
   terraform-unit-tests:
     name: 'Terraform Unit Tests'
@@ -22,11 +20,6 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v3
 
-     # Terraform is already installed on the runner to save time.
-#    # Install the latest version of Terraform CLI and configure the Terraform CLI configuration file with a Terraform Cloud user API token
-#    - name: Setup Terraform
-#      uses: hashicorp/setup-terraform@v2
-
     # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
     - name: Terraform Init
       run: terraform init -backend=false
@@ -39,48 +32,31 @@ jobs:
     - name: Terraform Format
       run: terraform fmt -check -recursive
 
-#    - uses: terraform-linters/tflint-load-config-action@v0
-#      with:
-#        source-repo: yorkutest/tflint-config
-#        source-path: ./.tflint.hcl
-#        token: ${{ github.token }}
-
     # Start liniting 
     - uses: actions/cache@v3
       name: Cache plugin dir
       with:
         path: ~/.tflint.d/plugins
         key: tflint-${{ hashFiles('.tflint.hcl') }}
-#
-#    - uses: terraform-linters/setup-tflint@v3
-#      name: Setup TFLint
-#      with:
-#        tflint_version: latest
-
-#    - name: Init TFLint
-#      run: tflint --init 
-#      env:
-#        # https://github.com/terraform-linters/tflint/blob/master/docs/user-guide/plugins.md#avoiding-rate-limiting
-#        GITHUB_TOKEN: ${{ github.token }}
 
     - name: Show version
       run: tflint --version
 
-#    - name: Init TFLint
-#      run: tflint --init
-#      env:
-#        # https://github.com/terraform-linters/tflint/blob/master/docs/user-guide/plugins.md#avoiding-rate-limiting
-#        GITHUB_TOKEN: ${{ github.token }}
+    - name: Init TFLint
+      run: tflint --init
+      env:
+        # https://github.com/terraform-linters/tflint/blob/master/docs/user-guide/plugins.md#avoiding-rate-limiting
+        GITHUB_TOKEN: ${{ github.token }}
 
     - name: Run TFLint
       run: tflint -f compact --module --recursive
 
       # Perform a security scan of the terraform code using checkov
-#    - name: Run Checkov action
-#      id: checkov
-#      uses: bridgecrewio/checkov-action@master
-#      with: 
-#        framework: terraform
+    - name: Run Checkov action
+      id: checkov
+      uses: bridgecrewio/checkov-action@master
+      with: 
+        framework: terraform
     - name: Run checkov
       run: checkov -d . --download-external-modules true --output sarif --framework terraform
       env:

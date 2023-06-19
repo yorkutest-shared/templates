@@ -62,7 +62,7 @@ jobs:
 #      with: 
 #        framework: terraform
     - name: Run checkov
-      run: checkov -d . --download-external-modules true --output sarif --framework terraform
+      run: checkov -d . --download-external-modules true -o cli -o sarif --framework terraform
       env:
         GITHUB_PAT: ${{ github.token }}
 

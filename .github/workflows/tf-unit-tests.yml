@@ -36,22 +36,22 @@ jobs:
     - name: Terraform Format
       run: terraform fmt -check -recursive
 
-    # Start liniting 
-    - uses: actions/cache@v3
-      name: Cache plugin dir
-      with:
-        path: ~/.tflint.d/plugins
-        key: tflint-${{ hashFiles('.tflint.hcl') }}
-
-    - name: Show version
-      run: tflint --version
-
-    - name: Init TFLint
-      run: tflint --init
-      env:
-        # https://github.com/terraform-linters/tflint/blob/master/docs/user-guide/plugins.md#avoiding-rate-limiting
-        GITHUB_TOKEN: ${{ github.token }}
-
+    ## Start liniting 
+    #- uses: actions/cache@v3
+    #  name: Cache plugin dir
+    #  with:
+    #    path: ~/.tflint.d/plugins
+    #    key: tflint-${{ hashFiles('.tflint.hcl') }}
+    #
+    #- name: Show version
+    #  run: tflint --version
+    #
+    #- name: Init TFLint
+    #  run: tflint --init
+    #  env:
+    #    # https://github.com/terraform-linters/tflint/blob/master/docs/user-guide/plugins.md#avoiding-rate-limiting
+    #    GITHUB_TOKEN: ${{ github.token }}
+#
     - name: Run TFLint
       run: tflint -f compact --module --recursive
 

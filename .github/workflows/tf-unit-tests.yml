@@ -3,18 +3,22 @@ name: 'Terraform Unit Tests'
 on:
   workflow_call:
     inputs:
-      runsOn:
+      runsOnGroup:
         type: string
-        default: self-hosted
+        default: yorku-shared-runners
+      token:
+        type: string
+        
 
 jobs:
   terraform-unit-tests:
     name: 'Terraform Unit Tests'
-    runs-on: ${{ inputs.runsOn }}
+    runs-on: 
+      group: ${{ inputs.runsOnGroup }}
     
     steps:
-#    - name: Setup private repo credentials for private modules
-#      run: git config --global url."https://git:${{ inputs.token }}@github.com/".insteadOf "https://github.com/"
+    - name: Setup private repo credentials for private modules
+      run: git config --global url."https://git:${{ inputs.token }}@github.com/".insteadOf "https://github.com/"
 
     # Checkout the repository to the GitHub Actions runner
     - name: Checkout

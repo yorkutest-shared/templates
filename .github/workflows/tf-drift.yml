@@ -3,27 +3,37 @@ name: 'Terraform Configuration Drift Detection'
 on:
   workflow_call:
     inputs:
-        storage-key:
-          required: true
-          type: string
-        storage-account-info:
-          required: true
-          type: string
-    secrets:
-      token:
+      storageAccountInfo:
         required: true
+        type: string
+      deploymentType:
+        required: true
+        type: string
+      commandOptions:
+        required: true
+        type: string
+      storageKey:
+        required: true
+        type: string
+      targetEnv:
+        required: true
+        type: string
+      runsOnGroup:
+        type: string
+        default: yorku-shared-runners
   
 jobs:
   terraform-plan:
     name: 'Terraform Plan'
-    runs-on: self-hosted
+    runs-on: 
+      group: ${{ inputs.runsOnGroup }}
+    environment:
+      name: ${{ inputs.targetEnv }}
     env:
       ARM_SKIP_PROVIDER_REGISTRATION: true
       ARM_CLIENT_ID: "${{ secrets.AZURE_CLIENT_ID }}"
-      #ARM_CLIENT_SECRET: "${{ secrets.AZURE_CLIENT_SECRET }}"
       ARM_SUBSCRIPTION_ID: "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
       ARM_TENANT_ID: "${{ secrets.AZURE_TENANT_ID }}"
-  
     outputs:
       tfplanExitCode: ${{ steps.tf-plan.outputs.exitcode }}
 
@@ -32,16 +42,14 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v3
 
-    # Install the latest version of the Terraform CLI
-    #- name: Setup Terraform
-    #  uses: hashicorp/setup-terraform@v2
-    #  with:
-    #    terraform_wrapper: false
-
     # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
     - name: Terraform Init
-      run: terraform init -backend-config="key=${{ inputs.storage-key }}" ${{ inputs.storage-account-info }}
+      run: terraform init -backend-config="key=${{ inputs.storageKey }}" ${{ inputs.storageAccountInfo }}
 
+    # Checks that all Terraform configuration files adhere to a canonical format
+    # Will fail the build if not
+    - name: Terraform Format
+      run: terraform fmt -check
 
     # Generates an execution plan for Terraform
     # An exit code of 0 indicated no changes, 1 a terraform failure, 2 there are pending changes.
@@ -49,8 +57,8 @@ jobs:
       id: tf-plan
       run: |
         export exitcode=0
-        terraform plan -detailed-exitcode -no-color -out tfplan || export exitcode=$?
-        
+        terraform plan ${{ inputs.commandOptions }} -detailed-exitcode -no-color -out tfplan || export exitcode=$?
+
         echo "exitcode=$exitcode" >> $GITHUB_OUTPUT
         
         if [ $exitcode -eq 1 ]; then
@@ -90,6 +98,23 @@ jobs:
         SUMMARY: ${{ steps.tf-plan-string.outputs.summary }}
       run: |
         echo "$SUMMARY" >> $GITHUB_STEP_SUMMARY
+      
+    # If this is a PR post the changes
+    - name: Push Terraform Output to PR
+      if: github.ref != 'refs/heads/main'
+      uses: actions/github-script@v6
+      env:
+        SUMMARY: "${{ steps.tf-plan-string.outputs.summary }}"
+      with:
+          github-token: ${{ secrets.token }}
+          script: |
+            const body = `${process.env.SUMMARY}`;
+            github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+            })
 
     # If changes are detected, create a new issue
     - name: Publish Drift Report

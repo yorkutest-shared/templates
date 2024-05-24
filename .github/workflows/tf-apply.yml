@@ -1,0 +1,126 @@
+name: 'Terraform Plan/Apply'
+
+on:
+  workflow_call:
+    inputs:
+        targetEnv:
+          required: true
+          type: string
+        commandOptions:
+          type: string
+          default: ''
+        storageSubscriptionId:
+          type: string
+          default: ed7af097-864f-41f7-9c0f-413b22cc9391
+        storageTenantId:
+          type: string
+          default: 34531318-7011-4fd4-87f0-a43816c49bd0
+        storageResourceGroup:
+          type: string
+          default: RG-YU-CC-tfstate-all
+        storageAccountName:
+          type: string
+          default: yucctfstate01
+        storageContainerName:
+          type: string
+          default: ${{github.repository_owner}}
+        additionalBackendConfig:
+          type: string
+          default: 'use_oidc=true'
+        variableFile:
+          type: string
+          default: ''
+        storageKey:
+          type: string
+          default: ''
+        runsOnGroup:
+          type: string
+          default: yorku-shared-runners-new
+        applyOptions:
+          type: string
+          default: ''
+
+env:
+  COMMAND_OPTIONS: ${{ inputs.commandOptions == '' && format('-var-file=variables/{0}.tfvars', inputs.variableFile == '' &&  inputs.targetEnv || inputs.variableFile) || inputs.commandOptions}}
+  BACKEND_CONFIG: ${{ format('-backend-config="subscription_id={0}" -backend-config="tenant_id={1}" -backend-config="resource_group_name={2}" -backend-config="storage_account_name={3}" -backend-config="container_name={4}" -backend-config="{5}" -backend-config="key={6}"',inputs.storageSubscriptionId ,inputs.storageTenantId ,inputs.storageResourceGroup , inputs.storageAccountName,inputs.storageContainerName ,inputs.additionalBackendConfig , inputs.storageKey == '' && format('{0}/{1}{2}', inputs.targetEnv, github.event.repository.name, '.tfstate') || inputs.storageKey) }}
+
+jobs:
+  terraform-plan:
+    name: 'Terraform Plan'
+    uses: ./.github/workflows/tf-plan.yml
+    with:
+      targetEnv: ${{inputs.targetEnv}}
+      commandOptions: ${{inputs.commandOptions}}
+      storageSubscriptionId: ${{inputs.storageSubscriptionId}}
+      storageTenantId: ${{inputs.storageTenantId}}
+      storageResourceGroup: ${{inputs.storageResourceGroup}}
+      storageAccountName: ${{inputs.storageAccountName}}
+      storageContainerName: ${{inputs.storageContainerName}}
+      additionalBackendConfig: ${{inputs.additionalBackendConfig}}
+      storageKey: ${{inputs.storageKey}}
+      variableFile: ${{inputs.variableFile}}
+      runsOnGroup: ${{inputs.runsOnGroup}}
+    secrets: inherit
+               
+  terraform-apply:
+    name: 'Terraform Apply'
+    if: (github.ref == 'refs/heads/main' || startsWith( github.ref, 'refs/tags/release/' )) && needs.terraform-plan.outputs.tfplanExitCode == 2
+    runs-on: 
+      group: ${{ inputs.runsOnGroup }}
+    environment:
+      name: ${{ inputs.targetEnv }}
+    
+    env:
+      ARM_SKIP_PROVIDER_REGISTRATION: true
+      ARM_CLIENT_ID: "${{ secrets.AZURE_CLIENT_ID }}"
+      ARM_SUBSCRIPTION_ID: "${{ inputs.storageSubscriptionId }}"
+      ARM_TENANT_ID: "${{ inputs.storageTenantId }}"
+
+    needs: [terraform-plan]
+    
+    steps:
+    # Checkout the repository to the GitHub Actions runner
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
+    - name: Terraform Init
+      run: terraform init ${{ env.BACKEND_CONFIG }}
+
+    # Download saved plan from artifacts  
+    - name: Download Terraform Plan
+      uses: actions/download-artifact@v4
+      with:
+        name: tfplan
+
+    # Terraform Apply
+    - name: Terraform Apply
+      id: tf-apply
+      run: |
+        set -o pipefail
+        terraform apply ${{ inputs.applyOptions }} -no-color -auto-approve tfplan 2>&1 | tee tfapply_output.txt
+        delimiter="$(openssl rand -hex 8)"
+        echo "summary<<${delimiter}" >> $GITHUB_OUTPUT
+        echo "## Terraform Apply Output" >> $GITHUB_OUTPUT
+        echo "<details><summary>Click to expand</summary>" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo '```text' >> $GITHUB_OUTPUT
+        cat tfapply_output.txt >> $GITHUB_OUTPUT
+        echo '```' >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "</details>" >> $GITHUB_OUTPUT
+        echo "${delimiter}" >> $GITHUB_OUTPUT
+
+    # Publish Terraform Apply as task summary
+    - name: Publish Terraform Apply to Task Summary
+      env:
+        SUMMARY: ${{ steps.tf-apply.outputs.summary }}
+      run: |
+        echo "$SUMMARY" >> $GITHUB_STEP_SUMMARY
+
+    # Save Apply output to artifacts  
+    - name: Save output to artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: tfapply_output.txt
+        path: tfapply_output.txt

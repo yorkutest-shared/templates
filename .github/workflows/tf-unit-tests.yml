@@ -3,69 +3,87 @@ name: 'Terraform Unit Tests'
 on:
   workflow_call:
     inputs:
-      runsOnGroup:
+      runsOn:
         type: string
-        default: yorku-shared-runners
-      token:
+        default: ubuntu-latest
+      workingDir:
         type: string
-        
+        default: '.'
 
 jobs:
   terraform-unit-tests:
     name: 'Terraform Unit Tests'
-    runs-on: 
-      group: ${{ inputs.runsOnGroup }}
+    runs-on: ${{ inputs.runsOn }}
     
     steps:
-    - name: Setup private repo credentials for private modules
-      run: git config --global url."https://git:${{ inputs.token }}@github.com/".insteadOf "https://github.com/"
-
     # Checkout the repository to the GitHub Actions runner
     - name: Checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
     - name: Terraform Init
       run: terraform init -backend=false
+      working-directory: ${{ inputs.workingDir }}
 
     # Validate terraform files
     - name: Terraform Validate
       run: terraform validate
+      working-directory: ${{ inputs.workingDir }}
 
     # Checks that all Terraform configuration files adhere to a canonical format
     - name: Terraform Format
       run: terraform fmt -check -recursive
+      working-directory: ${{ inputs.workingDir }}
 
-    ## Start liniting 
-    #- uses: actions/cache@v3
-    #  name: Cache plugin dir
-    #  with:
-    #    path: ~/.tflint.d/plugins
-    #    key: tflint-${{ hashFiles('.tflint.hcl') }}
-    #
-    #- name: Show version
-    #  run: tflint --version
-    #
-    #- name: Init TFLint
-    #  run: tflint --init
-    #  env:
-    #    # https://github.com/terraform-linters/tflint/blob/master/docs/user-guide/plugins.md#avoiding-rate-limiting
-    #    GITHUB_TOKEN: ${{ github.token }}
-#
+    # Start liniting 
+    - uses: actions/cache@v4
+      name: Cache plugin dir
+      with:
+        path: ~/.tflint.d/plugins
+        key: tflint-${{ hashFiles('.tflint.hcl') }}
+
+    - uses: terraform-linters/setup-tflint@v4
+      name: Setup TFLint
+      with:
+        tflint_version: latest
+
+    - name: tflint setup azure plugin
+      run: |
+        echo 'plugin "terraform" {' > .tflint.hcl
+        echo '  enabled = true' >> .tflint.hcl
+        echo '  preset  = "recommended"' >> .tflint.hcl
+        echo '}' >> .tflint.hcl
+        echo ' ' >> .tflint.hcl
+        echo 'plugin "azurerm" {' >> .tflint.hcl
+        echo '    enabled = true' >> .tflint.hcl
+        echo '    version = "0.23.0"' >> .tflint.hcl
+        echo '    source  = "github.com/terraform-linters/tflint-ruleset-azurerm"' >> .tflint.hcl
+        echo '}' >> .tflint.hcl
+
+
+    # Checks that all Terraform configuration files adhere to a canonical format
+    - name: Echo file
+      run: cat .tflint.hcl
+
+    - name: Init TFLint
+      run: tflint --init 
+      env:
+        # https://github.com/terraform-linters/tflint/blob/master/docs/user-guide/plugins.md#avoiding-rate-limiting
+        GITHUB_TOKEN: ${{ github.token }}
+
+    - name: Show version
+      run: tflint --version
+
     - name: Run TFLint
       run: tflint -f compact --module --recursive
 
-      # Perform a security scan of the terraform code using checkov
-#    - name: Run Checkov action
-#      id: checkov
-#      uses: bridgecrewio/checkov-action@master
-#      with: 
-#        framework: terraform
-    - name: Run checkov
-      run: checkov -d . --download-external-modules true -o cli -o sarif --framework terraform
-      env:
-        GITHUB_PAT: ${{ github.token }}
-
+    # Perform a security scan of the terraform code using checkov
+    - name: Run Checkov action
+      id: checkov
+      uses: bridgecrewio/checkov-action@master
+      with: 
+        framework: terraform
+      
     # Upload results to GitHub Advanced Security
     #- name: Upload SARIF file
     #  if: success() || failure()

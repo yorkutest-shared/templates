@@ -3,130 +3,75 @@ name: 'Terraform Configuration Drift Detection'
 on:
   workflow_call:
     inputs:
-      storageAccountInfo:
-        required: true
-        type: string
-      deploymentType:
-        required: true
-        type: string
-      commandOptions:
-        required: true
-        type: string
-      storageKey:
-        required: true
-        type: string
-      targetEnv:
-        required: true
-        type: string
-      runsOnGroup:
-        type: string
-        default: yorku-shared-runners
-  
+        targetEnv:
+          required: true
+          type: string
+        commandOptions:
+          type: string
+          default: ''
+        storageSubscriptionId:
+          type: string
+          default: ed7af097-864f-41f7-9c0f-413b22cc9391
+        storageTenantId:
+          type: string
+          default: 34531318-7011-4fd4-87f0-a43816c49bd0
+        storageResourceGroup:
+          type: string
+          default: RG-YU-CC-tfstate-all
+        storageAccountName:
+          type: string
+          default: yucctfstate01
+        storageContainerName:
+          type: string
+          default: ${{github.repository_owner}}
+        additionalBackendConfig:
+          type: string
+          default: 'use_oidc=true'
+        storageKey:
+          type: string
+          default: ''
+        variableFile:
+          type: string
+          default: ''
+        runsOnGroup:
+          type: string
+          default: yorku-shared-runners-new
+
 jobs:
   terraform-plan:
     name: 'Terraform Plan'
+    uses: ./.github/workflows/tf-plan.yml
+    with:
+      targetEnv: ${{inputs.targetEnv}}
+      commandOptions: ${{inputs.commandOptions}}
+      storageSubscriptionId: ${{inputs.storageSubscriptionId}}
+      storageTenantId: ${{inputs.storageTenantId}}
+      storageResourceGroup: ${{inputs.storageResourceGroup}}
+      storageAccountName: ${{inputs.storageAccountName}}
+      storageContainerName: ${{inputs.storageContainerName}}
+      additionalBackendConfig: ${{inputs.additionalBackendConfig}}
+      storageKey: ${{inputs.storageKey}}
+      variableFile: ${{inputs.variableFile}}
+      runsOnGroup: ${{inputs.runsOnGroup}}
+    secrets: inherit
+
+  address-drift:
+    name: 'Address Terraform Drift'
     runs-on: 
       group: ${{ inputs.runsOnGroup }}
-    environment:
-      name: ${{ inputs.targetEnv }}
-    env:
-      ARM_SKIP_PROVIDER_REGISTRATION: true
-      ARM_CLIENT_ID: "${{ secrets.AZURE_CLIENT_ID }}"
-      ARM_SUBSCRIPTION_ID: "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-      ARM_TENANT_ID: "${{ secrets.AZURE_TENANT_ID }}"
-    outputs:
-      tfplanExitCode: ${{ steps.tf-plan.outputs.exitcode }}
-
+    needs: [terraform-plan]
     steps:
-    # Checkout the repository to the GitHub Actions runner
-    - name: Checkout
-      uses: actions/checkout@v3
-
-    # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
-    - name: Terraform Init
-      run: terraform init -backend-config="key=${{ inputs.storageKey }}" ${{ inputs.storageAccountInfo }}
-
-    # Checks that all Terraform configuration files adhere to a canonical format
-    # Will fail the build if not
-    - name: Terraform Format
-      run: terraform fmt -check
-
-    # Generates an execution plan for Terraform
-    # An exit code of 0 indicated no changes, 1 a terraform failure, 2 there are pending changes.
-    - name: Terraform Plan
-      id: tf-plan
-      run: |
-        export exitcode=0
-        terraform plan ${{ inputs.commandOptions }} -detailed-exitcode -no-color -out tfplan || export exitcode=$?
-
-        echo "exitcode=$exitcode" >> $GITHUB_OUTPUT
-        
-        if [ $exitcode -eq 1 ]; then
-          echo Terraform Plan Failed!
-          exit 1
-        else 
-          exit 0
-        fi
-        
-    # Save plan to artifacts  
-    - name: Publish Terraform Plan
-      uses: actions/upload-artifact@v3
-      with:
-        name: tfplan
-        path: tfplan
-        
-    # Create string output of Terraform Plan
-    - name: Create String Output
-      id: tf-plan-string
-      run: |
-        TERRAFORM_PLAN=$(terraform show -no-color tfplan)
-        
-        delimiter="$(openssl rand -hex 8)"
-        echo "summary<<${delimiter}" >> $GITHUB_OUTPUT
-        echo "## Terraform Plan Output" >> $GITHUB_OUTPUT
-        echo "<details><summary>Click to expand</summary>" >> $GITHUB_OUTPUT
-        echo "" >> $GITHUB_OUTPUT
-        echo '```terraform' >> $GITHUB_OUTPUT
-        echo "$TERRAFORM_PLAN" >> $GITHUB_OUTPUT
-        echo '```' >> $GITHUB_OUTPUT
-        echo "</details>" >> $GITHUB_OUTPUT
-        echo "${delimiter}" >> $GITHUB_OUTPUT
-        
-    # Publish Terraform Plan as task summary
-    - name: Publish Terraform Plan to Task Summary
-      env:
-        SUMMARY: ${{ steps.tf-plan-string.outputs.summary }}
-      run: |
-        echo "$SUMMARY" >> $GITHUB_STEP_SUMMARY
-      
-    # If this is a PR post the changes
-    - name: Push Terraform Output to PR
-      if: github.ref != 'refs/heads/main'
-      uses: actions/github-script@v6
-      env:
-        SUMMARY: "${{ steps.tf-plan-string.outputs.summary }}"
-      with:
-          github-token: ${{ secrets.token }}
-          script: |
-            const body = `${process.env.SUMMARY}`;
-            github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: body
-            })
-
     # If changes are detected, create a new issue
     - name: Publish Drift Report
-      if: steps.tf-plan.outputs.exitcode == 2
+      if: needs.terraform-plan.outputs.tfplanExitCode == 2
       uses: actions/github-script@v6
       env:
-        SUMMARY: "${{ steps.tf-plan-string.outputs.summary }}"
+        SUMMARY: "${{ needs.terraform-plan.outputs.summary }}"
       with:
-          github-token: ${{ secrets.token }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const body = `${process.env.SUMMARY}`;
-            const title = 'Terraform Configuration Drift Detected';
+            const title = 'Terraform Configuration Drift Detected in ${{ inputs.targetEnv }}';
             const creator = 'github-actions[bot]'
           
             // Look to see if there is an existing drift issue
@@ -166,12 +111,12 @@ jobs:
             
     # If changes aren't detected, close any open drift issues
     - name: Publish Drift Report
-      if: steps.tf-plan.outputs.exitcode == 0
+      if: needs.terraform-plan.outputs.tfplanExitCode == 0
       uses: actions/github-script@v6
       with:
-          github-token: ${{ secrets.token }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const title = 'Terraform Configuration Drift Detected';
+            const title = 'Terraform Configuration Drift Detected in ${{ inputs.targetEnv }}';
             const creator = 'github-actions[bot]'
           
             // Look to see if there is an existing drift issue
@@ -196,5 +141,5 @@ jobs:
              
     # Mark the workflow as failed if drift detected 
     - name: Error on Failure
-      if: steps.tf-plan.outputs.exitcode == 2
+      if: needs.terraform-plan.outputs.tfplanExitCode == 2
       run: exit 1

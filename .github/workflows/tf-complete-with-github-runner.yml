@@ -3,25 +3,48 @@ name: 'Terraform Plan/Apply'
 on:
   workflow_call:
     inputs:
-        storageAccountInfo:
-          required: true
-          type: string
         deploymentType:
-          required: true
-          type: string
-        commandOptions:
-          required: true
-          type: string
-        storageKey:
           required: true
           type: string
         targetEnv:
           required: true
           type: string
+        useSSHKey:
+          required: false
+          type: boolean
+          default: true
+        commandOptions:
+          type: string
+          default: ''
+        storageSubscriptionId:
+          type: string
+          default: ce4ae544-b658-48c0-a894-29f67af78ad7
+        storageTenantId:
+          type: string
+          default: ff87514a-dc3e-4e9a-a805-fa5dd9b76e28
+        storageResourceGroup:
+          type: string
+          default: tfstate-rg
+        storageAccountName:
+          type: string
+          default: tfstate34923493
+        storageContainerName:
+          type: string
+          default: ${{github.repository_owner}}
+        additionalBackendConfig:
+          type: string
+          default: 'use_oidc=true'
+        storageKey:
+          type: string
+          default: ''
         runsOn:
           type: string
           default: ubuntu-latest
 
+env:
+  COMMAND_OPTIONS: ${{ inputs.commandOptions == '' && format('-var-file=variables/{0}.tfvars', inputs.variableFile == '' &&  inputs.targetEnv || inputs.variableFile) || inputs.commandOptions}}
+  BACKEND_CONFIG: ${{ format('-backend-config="subscription_id={0}" -backend-config="tenant_id={1}" -backend-config="resource_group_name={2}" -backend-config="storage_account_name={3}" -backend-config="container_name={4}" -backend-config="{5}" -backend-config="key={6}"',inputs.storageSubscriptionId ,inputs.storageTenantId ,inputs.storageResourceGroup , inputs.storageAccountName,inputs.storageContainerName ,inputs.additionalBackendConfig , inputs.storageKey == '' && format('{0}/{1}{2}', inputs.targetEnv, github.event.repository.name, '.tfstate') || inputs.storageKey) }}
+          
 jobs:
 
   unit-tests:
@@ -32,14 +55,41 @@ jobs:
 
     # Checkout the repository to the GitHub Actions runner
     - name: Checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     # Install the latest version of Terraform CLI and configure the Terraform CLI configuration file with a Terraform Cloud user API token
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v2
+      
+    # Install the Github Service Account SSH key.
+    # - name: Install SSH key
+    #   if: inputs.useSSHKey
+    #   run: |
+    #     mkdir -p ~/.ssh
+    #     echo "${{ secrets.SSH_PRIVATE_KEY }}" >> ~/.ssh/ghsvc01
+    #     chmod 600 ~/.ssh/ghsvc01
+    #     ssh-keyscan -H 'github.com' >> ~/.ssh/known_hosts
+    #     eval `ssh-agent -s`
+    #     ssh-add ~/.ssh/ghsvc01
+    #     git config --global user.email "ghsvc01@yorku.ca"
+    #     git config --global user.name "GitHub Runner Automation"
 
+    - name: Install SSH key
+      if: inputs.useSSHKey
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H 'github.com' >> ~/.ssh/known_hosts
+        ls -lha ~/.ssh/
+        cat ~/.ssh/id_rsa
+        cat ~/.ssh/known_hosts
+          
     # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
     - name: Terraform Init
+      env:
+        SSH_AUTH_SOCK: /tmp/ssh_agent.sock
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: terraform init -backend=false
 
     # Validate terraform files
@@ -48,13 +98,13 @@ jobs:
 
 
     # Start liniting 
-    - uses: actions/cache@v3
+    - uses: actions/cache@v4
       name: Cache plugin dir
       with:
         path: ~/.tflint.d/plugins
         key: tflint-${{ hashFiles('.tflint.hcl') }}
 
-    - uses: terraform-linters/setup-tflint@v3
+    - uses: terraform-linters/setup-tflint@v4
       name: Setup TFLint
       with:
         tflint_version: latest
@@ -89,12 +139,12 @@ jobs:
     - name: Run TFLint
       run: tflint -f compact --module --recursive
 
-      # Perform a security scan of the terraform code using checkov
-    #- name: Run Checkov action
-    #  id: checkov
-    #  uses: bridgecrewio/checkov-action@master
-    #  with: 
-    #    framework: terraform
+    # Perform a security scan of the terraform code using checkov
+    - name: Run Checkov action
+      id: checkov
+      uses: bridgecrewio/checkov-action@master
+      with: 
+        framework: terraform
 
 
   terraform-plan:
@@ -106,15 +156,15 @@ jobs:
     env:
       ARM_SKIP_PROVIDER_REGISTRATION: true
       ARM_CLIENT_ID: "${{ secrets.AZURE_CLIENT_ID }}"
-      ARM_SUBSCRIPTION_ID: "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-      ARM_TENANT_ID: "${{ secrets.AZURE_TENANT_ID }}"
+      ARM_SUBSCRIPTION_ID: "${{ inputs.storageSubscriptionId }}"
+      ARM_TENANT_ID: "${{ inputs.storageTenantId }}"
     outputs:
       tfplanExitCode: ${{ steps.tf-plan.outputs.exitcode }}
 
     steps:
     # Checkout the repository to the GitHub Actions runner
     - name: Checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     # Install the latest version of the Terraform CLI
     - name: Setup Terraform
@@ -122,9 +172,20 @@ jobs:
       with:
         terraform_wrapper: false
 
+    - name: Install SSH key
+      if: inputs.useSSHKey
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H 'github.com' >> ~/.ssh/known_hosts
+        ls -lha ~/.ssh/
+        cat ~/.ssh/id_rsa
+        cat ~/.ssh/known_hosts
+
     # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
     - name: Terraform Init
-      run: terraform init -backend-config="key=${{ inputs.storageKey }}" ${{ inputs.storageAccountInfo }}
+      run: terraform init ${{ env.BACKEND_CONFIG }}
 
     # Checks that all Terraform configuration files adhere to a canonical format
     # Will fail the build if not
@@ -137,7 +198,7 @@ jobs:
       id: tf-plan
       run: |
         export exitcode=0
-        terraform plan ${{ inputs.commandOptions }} -detailed-exitcode -no-color -out tfplan || export exitcode=$?
+        terraform plan ${{ env.COMMAND_OPTIONS }} -detailed-exitcode -no-color -out tfplan || export exitcode=$?
 
         echo "exitcode=$exitcode" >> $GITHUB_OUTPUT
         
@@ -150,7 +211,7 @@ jobs:
         
     # Save plan to artifacts  
     - name: Publish Terraform Plan
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: tfplan
         path: tfplan
@@ -190,28 +251,41 @@ jobs:
     env:
       ARM_SKIP_PROVIDER_REGISTRATION: true
       ARM_CLIENT_ID: "${{ secrets.AZURE_CLIENT_ID }}"
-      ARM_SUBSCRIPTION_ID: "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-      ARM_TENANT_ID: "${{ secrets.AZURE_TENANT_ID }}"
+      ARM_SUBSCRIPTION_ID: "${{ inputs.storageSubscriptionId }}"
+      ARM_TENANT_ID: "${{ inputs.storageTenantId }}"
+      TF_VAR_client_id: "${{ secrets.AZURE_CLIENT_ID }}"
+      TF_VAR_client_secret: "${{ secrets.AZURE_CLIENT_SECRET }}"
+      TF_VAR_tenant_id: "${{ inputs.storageTenantId }}"
 
-    #environment: production
     needs: [terraform-plan]
     
     steps:
     # Checkout the repository to the GitHub Actions runner
     - name: Checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     ## Install the latest version of Terraform CLI and configure the Terraform CLI configuration file with a Terraform Cloud user API token
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v2
-
+    
+    - name: Install SSH key
+      if: inputs.useSSHKey
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H 'github.com' >> ~/.ssh/known_hosts
+        ls -lha ~/.ssh/
+        cat ~/.ssh/id_rsa
+        cat ~/.ssh/known_hosts
+    
     # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
     - name: Terraform Init
-      run: terraform init -backend-config="key=${{ inputs.storageKey }}" ${{ inputs.storageAccountInfo }}
+      run: terraform init ${{ env.BACKEND_CONFIG }}
 
     # Download saved plan from artifacts  
     - name: Download Terraform Plan
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: tfplan
 

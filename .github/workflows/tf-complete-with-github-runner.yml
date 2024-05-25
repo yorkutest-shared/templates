@@ -76,21 +76,21 @@ jobs:
     #     git config --global user.email "ghsvc01@yorku.ca"
     #     git config --global user.name "GitHub Runner Automation"
 
-    # - name: Install SSH key
-    #   if: inputs.useSSHKey
-    #   run: |
-    #     mkdir -p ~/.ssh
-    #     echo '${{ secrets.SSH_PRIVATE_KEY }}' > ~/.ssh/id_ed25519
-    #     chmod 600 ~/.ssh/id_ed25519
-    #     ssh-keyscan -H 'github.com' >> ~/.ssh/known_hosts
-    #     ls -lha ~/.ssh/
-    #     cat ~/.ssh/id_ed25519
-    #     # cat ~/.ssh/known_hosts
-    - uses: webfactory/ssh-agent@v0.9.0
-      name: Install SSH key
+    - name: Install SSH key
       if: inputs.useSSHKey
-      with:
-        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      run: |
+        mkdir -p ~/.ssh
+        echo '${{ secrets.SSH_PRIVATE_KEY }}' > ~/.ssh/id_ed25519
+        chmod 600 ~/.ssh/id_ed25519
+        ssh-keyscan -H 'github.com' >> ~/.ssh/known_hosts
+        ls -lha ~/.ssh/
+        cat ~/.ssh/id_ed25519
+        # cat ~/.ssh/known_hosts
+    # - uses: webfactory/ssh-agent@v0.9.0
+    #   name: Install SSH key
+    #   if: inputs.useSSHKey
+    #   with:
+    #     ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
             
     # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
     - name: Terraform Init

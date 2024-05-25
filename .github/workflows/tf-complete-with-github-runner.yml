@@ -50,7 +50,9 @@ jobs:
   unit-tests:
     name: 'Terraform Unit Tests'
     runs-on: ${{ inputs.runsOn }}
-    
+    environment:
+      name: ${{ inputs.targetEnv }}
+
     steps:
 
     # Checkout the repository to the GitHub Actions runner

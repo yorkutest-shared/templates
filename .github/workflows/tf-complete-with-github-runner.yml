@@ -78,12 +78,12 @@ jobs:
       if: inputs.useSSHKey
       run: |
         mkdir -p ~/.ssh
-        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-        chmod 600 ~/.ssh/id_rsa
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+        chmod 600 ~/.ssh/id_ed25519
         ssh-keyscan -H 'github.com' >> ~/.ssh/known_hosts
         ls -lha ~/.ssh/
-        cat ~/.ssh/id_rsa
-        cat ~/.ssh/known_hosts
+        cat ~/.ssh/id_ed25519
+        # cat ~/.ssh/known_hosts
           
     # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
     - name: Terraform Init

@@ -144,7 +144,7 @@ jobs:
       run: tflint --version
 
     - name: Run TFLint
-      run: tflint -f compact --module --recursive
+      run: tflint -f compact --call-module-type=all --recursive
 
     # Perform a security scan of the terraform code using checkov
     - name: Run Checkov action

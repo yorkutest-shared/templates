@@ -40,6 +40,9 @@ on:
         runsOn:
           type: string
           default: ubuntu-latest
+        workingDir:
+          type: string
+          default: '.'
 
 env:
   COMMAND_OPTIONS: ${{ inputs.commandOptions == '' && format('-var-file=variables/{0}.tfvars', inputs.variableFile == '' &&  inputs.targetEnv || inputs.variableFile) || inputs.commandOptions}}
@@ -98,10 +101,12 @@ jobs:
         SSH_AUTH_SOCK: /tmp/ssh_agent.sock
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: terraform init -backend=false
+      working-directory: ${{ inputs.workingDir }}
 
     # Validate terraform files
     - name: Terraform Validate
       run: terraform validate
+      working-directory: ${{ inputs.workingDir }}
 
 
     # Start liniting 
@@ -145,6 +150,7 @@ jobs:
 
     - name: Run TFLint
       run: tflint -f compact --call-module-type=all --recursive
+      working-directory: ${{ inputs.workingDir }}
 
     # # Perform a security scan of the terraform code using checkov
     # - name: Run Checkov action
@@ -179,6 +185,7 @@ jobs:
       with:
         terraform_wrapper: false
 
+
     - name: Install SSH key
       if: inputs.useSSHKey
       run: |
@@ -193,11 +200,13 @@ jobs:
     # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
     - name: Terraform Init
       run: terraform init ${{ env.BACKEND_CONFIG }}
+      working-directory: ${{ inputs.workingDir }}
 
     # Checks that all Terraform configuration files adhere to a canonical format
     # Will fail the build if not
     - name: Terraform Format
       run: terraform fmt -check
+      working-directory: ${{ inputs.workingDir }}
 
     # Generates an execution plan for Terraform
     # An exit code of 0 indicated no changes, 1 a terraform failure, 2 there are pending changes.
@@ -215,13 +224,16 @@ jobs:
         else 
           exit 0
         fi
+      working-directory: ${{ inputs.workingDir }}
         
     # Save plan to artifacts  
     - name: Publish Terraform Plan
       uses: actions/upload-artifact@v4
       with:
         name: tfplan
-        path: tfplan
+        path: ${{ inputs.workingDir }}/tfplan
+      
+      
         
     # Create string output of Terraform Plan
     - name: Create String Output
@@ -239,13 +251,14 @@ jobs:
         echo '```' >> $GITHUB_OUTPUT
         echo "</details>" >> $GITHUB_OUTPUT
         echo "${delimiter}" >> $GITHUB_OUTPUT
-        
+      working-directory: ${{ inputs.workingDir }}  
     # Publish Terraform Plan as task summary
     - name: Publish Terraform Plan to Task Summary
       env:
         SUMMARY: ${{ steps.tf-plan-string.outputs.summary }}
       run: |
         echo "$SUMMARY" >> $GITHUB_STEP_SUMMARY
+      working-directory: ${{ inputs.workingDir }}
 
         
   terraform-apply:
@@ -289,13 +302,16 @@ jobs:
     # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
     - name: Terraform Init
       run: terraform init ${{ env.BACKEND_CONFIG }}
+      working-directory: ${{ inputs.workingDir }}
 
     # Download saved plan from artifacts  
     - name: Download Terraform Plan
       uses: actions/download-artifact@v4
       with:
         name: tfplan
+        path: ${{ inputs.workingDir }}/tfplan
 
     # Terraform Apply
     - name: Terraform Apply
       run: terraform apply -auto-approve tfplan
+      working-directory: ${{ inputs.workingDir }}

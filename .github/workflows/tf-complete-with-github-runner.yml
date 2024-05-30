@@ -313,5 +313,5 @@ jobs:
 
     # Terraform Apply
     - name: Terraform Apply
-      run: terraform -chdir ${{ inputs.workingDir }} apply -auto-approve tfplan
+      run: terraform -chdir=${{ inputs.workingDir }} apply -auto-approve tfplan
 

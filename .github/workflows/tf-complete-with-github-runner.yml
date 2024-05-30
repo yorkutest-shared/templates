@@ -40,7 +40,7 @@ on:
         runsOn:
           type: string
           default: ubuntu-latest
-       
+
 env:
   COMMAND_OPTIONS: ${{ inputs.commandOptions == '' && format('-var-file=variables/{0}.tfvars', inputs.variableFile == '' &&  inputs.targetEnv || inputs.variableFile) || inputs.commandOptions}}
   BACKEND_CONFIG: ${{ format('-backend-config="subscription_id={0}" -backend-config="tenant_id={1}" -backend-config="resource_group_name={2}" -backend-config="storage_account_name={3}" -backend-config="container_name={4}" -backend-config="{5}" -backend-config="key={6}"',inputs.storageSubscriptionId ,inputs.storageTenantId ,inputs.storageResourceGroup , inputs.storageAccountName,inputs.storageContainerName ,inputs.additionalBackendConfig , inputs.storageKey == '' && format('{0}/{1}{2}', inputs.targetEnv, github.event.repository.name, '.tfstate') || inputs.storageKey) }}
@@ -98,12 +98,10 @@ jobs:
         SSH_AUTH_SOCK: /tmp/ssh_agent.sock
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: terraform init -backend=false
-      
 
     # Validate terraform files
     - name: Terraform Validate
       run: terraform validate
-      
 
 
     # Start liniting 
@@ -147,7 +145,6 @@ jobs:
 
     - name: Run TFLint
       run: tflint -f compact --call-module-type=all --recursive
-      
 
     # # Perform a security scan of the terraform code using checkov
     # - name: Run Checkov action
@@ -182,7 +179,6 @@ jobs:
       with:
         terraform_wrapper: false
 
-
     - name: Install SSH key
       if: inputs.useSSHKey
       run: |
@@ -197,13 +193,11 @@ jobs:
     # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
     - name: Terraform Init
       run: terraform init ${{ env.BACKEND_CONFIG }}
-      
 
     # Checks that all Terraform configuration files adhere to a canonical format
     # Will fail the build if not
     - name: Terraform Format
       run: terraform fmt -check
-      
 
     # Generates an execution plan for Terraform
     # An exit code of 0 indicated no changes, 1 a terraform failure, 2 there are pending changes.
@@ -221,7 +215,6 @@ jobs:
         else 
           exit 0
         fi
-      
         
     # Save plan to artifacts  
     - name: Publish Terraform Plan
@@ -229,8 +222,6 @@ jobs:
       with:
         name: tfplan
         path: tfplan
-      
-      
         
     # Create string output of Terraform Plan
     - name: Create String Output
@@ -255,7 +246,6 @@ jobs:
         SUMMARY: ${{ steps.tf-plan-string.outputs.summary }}
       run: |
         echo "$SUMMARY" >> $GITHUB_STEP_SUMMARY
-      #
 
         
   terraform-apply:
@@ -299,18 +289,13 @@ jobs:
     # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
     - name: Terraform Init
       run: terraform init ${{ env.BACKEND_CONFIG }}
-      
 
     # Download saved plan from artifacts  
     - name: Download Terraform Plan
       uses: actions/download-artifact@v4
       with:
         name: tfplan
-        path: tfplan
 
     # Terraform Apply
     - name: Terraform Apply
-      run: |
-        ls -la 
-        terraform apply -auto-approve tfplan
-
+      run: terraform apply -auto-approve tfplan

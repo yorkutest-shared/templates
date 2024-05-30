@@ -309,9 +309,11 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: tfplan
-        path: tfplan
+        path: ${{ inputs.workingDir }}/tfplan
 
     # Terraform Apply
     - name: Terraform Apply
-      run: terraform -chdir=${{ inputs.workingDir }} apply -auto-approve tfplan
+      run: |
+        ls -la 
+        terraform -chdir=${{ inputs.workingDir }} apply -auto-approve tfplan
 

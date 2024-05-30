@@ -258,7 +258,7 @@ jobs:
         SUMMARY: ${{ steps.tf-plan-string.outputs.summary }}
       run: |
         echo "$SUMMARY" >> $GITHUB_STEP_SUMMARY
-      working-directory: ${{ inputs.workingDir }}
+      #working-directory: ${{ inputs.workingDir }}
 
         
   terraform-apply:
@@ -309,9 +309,9 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: tfplan
-        path: tfplan
+        path: ${{ inputs.workingDir }}/tfplan
 
     # Terraform Apply
     - name: Terraform Apply
-      run: terraform apply -auto-approve tfplan
+      run: terraform apply -chdir ${{ inputs.workingDir }} -auto-approve tfplan
 
